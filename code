@@ -1,0 +1,476 @@
+# ============================================================
+#  JobAgent AI - Autonomous Job Application Agent
+#  Compatible with Google Colab (Python 3.x)
+#  Run each cell in order, or Runtime > Run All
+# ============================================================
+
+# ── CELL 1: Install dependencies ─────────────────────────────
+# Run this cell first
+# !pip install anthropic colorama tabulate requests -q
+
+# ── CELL 2: Imports & Setup ───────────────────────────────────
+import time
+import random
+import json
+import textwrap
+import os
+from datetime import datetime
+from tabulate import tabulate
+
+try:
+    from colorama import Fore, Back, Style, init
+    init(autoreset=True)
+    HAS_COLOR = True
+except ImportError:
+    # Fallback if colorama not installed
+    class _Dummy:
+        def __getattr__(self, _): return ""
+    Fore = Back = Style = _Dummy()
+    HAS_COLOR = False
+
+# ── Student Profile (Edit these!) ────────────────────────────
+STUDENT = {
+    "name":       "Priya Sharma",
+    "email":      "priya.sharma@college.edu",
+    "college":    "JNTU Hyderabad",
+    "year":       "3rd Year B.Tech",
+    "cgpa":       "8.7",
+    "resume":     "Priya_Sharma_Resume.pdf",
+    "skills":     ["Python", "Machine Learning", "Data Analysis", "SQL", "TensorFlow"],
+    "domains":    ["AI / Machine Learning", "Data Science", "Cloud Engineering"],
+    "job_types":  ["Private IT", "Government"],
+}
+
+# Anthropic API Key - paste yours here or set as env variable
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "YOUR_API_KEY_HERE")
+
+# ── Job Database (mock data) ──────────────────────────────────
+JOBS = [
+    {"id": 1,  "title": "ML Engineer Intern",        "company": "Google India",       "type": "Private IT",  "platform": "LinkedIn",       "domain": "AI / Machine Learning", "location": "Hyderabad",  "stipend": "Rs.60,000/mo", "deadline": "May 15, 2026", "match": 97, "skills": ["Python","TensorFlow","NLP"]},
+    {"id": 2,  "title": "Data Scientist",             "company": "TCS Innovation Labs","type": "Private IT",  "platform": "Naukri",         "domain": "Data Science",          "location": "Bangalore",  "stipend": "Rs.8 LPA",     "deadline": "May 20, 2026", "match": 92, "skills": ["Python","SQL","Tableau"]},
+    {"id": 3,  "title": "Cloud Engineer Trainee",     "company": "ISRO Digital",       "type": "Government",  "platform": "Company Portal", "domain": "Cloud Engineering",     "location": "Bengaluru",  "stipend": "Rs.45,000/mo", "deadline": "May 10, 2026", "match": 88, "skills": ["AWS","Kubernetes","Terraform"]},
+    {"id": 4,  "title": "AI Research Intern",         "company": "Microsoft Research", "type": "Private IT",  "platform": "LinkedIn",       "domain": "AI / Machine Learning", "location": "Hyderabad",  "stipend": "Rs.75,000/mo", "deadline": "May 25, 2026", "match": 95, "skills": ["PyTorch","Research","LLMs"]},
+    {"id": 5,  "title": "Data Engineer",              "company": "Infosys BPM",        "type": "Private IT",  "platform": "Naukri",         "domain": "Data Engineering",      "location": "Pune",       "stipend": "Rs.7.5 LPA",   "deadline": "Jun 1, 2026",  "match": 85, "skills": ["Spark","Kafka","Airflow"]},
+    {"id": 6,  "title": "DevOps Intern",              "company": "NIC (Govt)",         "type": "Government",  "platform": "Company Portal", "domain": "DevOps / SRE",          "location": "Delhi",      "stipend": "Rs.35,000/mo", "deadline": "May 12, 2026", "match": 80, "skills": ["Docker","CI/CD","Linux"]},
+    {"id": 7,  "title": "Full Stack Intern",          "company": "Zoho Corp",          "type": "Private IT",  "platform": "Unstop",         "domain": "Full Stack Dev",        "location": "Chennai",    "stipend": "Rs.40,000/mo", "deadline": "May 30, 2026", "match": 90, "skills": ["React","Node.js","MongoDB"]},
+    {"id": 8,  "title": "Cybersecurity Analyst",      "company": "DRDO",               "type": "Government",  "platform": "Company Portal", "domain": "Cybersecurity",         "location": "Delhi",      "stipend": "Rs.50,000/mo", "deadline": "May 18, 2026", "match": 83, "skills": ["Pentesting","SIEM","Python"]},
+    {"id": 9,  "title": "Data Science Intern",        "company": "Amazon India",       "type": "Private IT",  "platform": "LinkedIn",       "domain": "Data Science",          "location": "Bangalore",  "stipend": "Rs.65,000/mo", "deadline": "Jun 5, 2026",  "match": 94, "skills": ["Python","ML","Statistics"]},
+    {"id": 10, "title": "Cloud Architect Trainee",    "company": "CDAC",               "type": "Government",  "platform": "Company Portal", "domain": "Cloud Engineering",     "location": "Pune",       "stipend": "Rs.42,000/mo", "deadline": "May 22, 2026", "match": 87, "skills": ["Azure","Networking","Security"]},
+    {"id": 11, "title": "NLP Research Intern",        "company": "Wipro AI Labs",      "type": "Private IT",  "platform": "Unstop",         "domain": "AI / Machine Learning", "location": "Bangalore",  "stipend": "Rs.50,000/mo", "deadline": "May 28, 2026", "match": 91, "skills": ["NLP","Python","Huggingface"]},
+    {"id": 12, "title": "Big Data Analyst",           "company": "ONGC IT Division",   "type": "Government",  "platform": "Company Portal", "domain": "Data Science",          "location": "Mumbai",     "stipend": "Rs.48,000/mo", "deadline": "May 14, 2026", "match": 86, "skills": ["Hadoop","SQL","Python"]},
+]
+
+# ── State ─────────────────────────────────────────────────────
+applied_jobs     = []
+notifications    = []
+shortlisted_jobs = []
+agent_log        = []
+
+
+# ============================================================
+#  HELPER FUNCTIONS
+# ============================================================
+
+def divider(char="=", width=65):
+    print(Fore.CYAN + Style.DIM + char * width + Style.RESET_ALL)
+
+def header(title):
+    print()
+    divider()
+    print(Fore.CYAN + Style.BRIGHT + f"  {title}" + Style.RESET_ALL)
+    divider()
+
+def log(msg, level="INFO"):
+    ts = datetime.now().strftime("%H:%M:%S")
+    colors = {
+        "INFO":    Fore.WHITE,
+        "SUCCESS": Fore.GREEN,
+        "WARN":    Fore.YELLOW,
+        "ERROR":   Fore.RED,
+        "SYSTEM":  Fore.MAGENTA,
+        "SCAN":    Fore.CYAN,
+    }
+    color = colors.get(level, Fore.WHITE)
+    entry = f"[{ts}] {msg}"
+    agent_log.append({"time": ts, "msg": msg, "level": level})
+    print(color + entry + Style.RESET_ALL)
+
+def match_color(score):
+    if score >= 90:
+        return Fore.GREEN + Style.BRIGHT
+    elif score >= 80:
+        return Fore.YELLOW
+    else:
+        return Fore.WHITE
+
+def progress_bar(pct, width=40):
+    filled = int(width * pct / 100)
+    bar = "[" + "#" * filled + "-" * (width - filled) + "]"
+    return Fore.CYAN + bar + f" {pct}%" + Style.RESET_ALL
+
+def wrap_text(text, width=60, indent="  "):
+    lines = textwrap.wrap(text, width)
+    return ("\n" + indent).join(lines)
+
+
+# ============================================================
+#  CELL 3: Student Profile Display
+# ============================================================
+
+def show_student_profile():
+    header("STUDENT PROFILE")
+    rows = [
+        ["Name",        STUDENT["name"]],
+        ["Email",       STUDENT["email"]],
+        ["College",     STUDENT["college"]],
+        ["Year / CGPA", f"{STUDENT['year']} | CGPA: {STUDENT['cgpa']}"],
+        ["Resume",      STUDENT["resume"]],
+        ["Skills",      ", ".join(STUDENT["skills"])],
+        ["Domains",     ", ".join(STUDENT["domains"])],
+        ["Job Types",   ", ".join(STUDENT["job_types"])],
+    ]
+    print(tabulate(rows, headers=["Field", "Value"], tablefmt="rounded_outline"))
+
+show_student_profile()
+
+
+# ============================================================
+#  CELL 4: Platform Scanner
+# ============================================================
+
+def scan_platforms():
+    header("SCANNING JOB PLATFORMS")
+    platforms = ["LinkedIn", "Unstop", "Naukri", "Company Portal"]
+    total_found = 0
+
+    for i, platform in enumerate(platforms):
+        log(f"Connecting to {platform}...", "SCAN")
+        time.sleep(0.6)
+
+        found = random.randint(3, 11)
+        total_found += found
+        pct = int(((i + 1) / len(platforms)) * 100)
+
+        log(f"Found {found} matching roles on {platform}", "SUCCESS")
+        print("  " + progress_bar(pct))
+        time.sleep(0.3)
+
+    print()
+    log(f"Platform scan complete — {total_found} raw listings collected", "SUCCESS")
+    log("Running AI match scoring...", "SYSTEM")
+    time.sleep(0.8)
+    log("Filtering Private IT + Government roles only...", "SYSTEM")
+    time.sleep(0.4)
+
+    filtered = [j for j in JOBS if j["domain"] in STUDENT["domains"] and j["type"] in STUDENT["job_types"]]
+    log(f"Agent ready — {len(filtered)} high-quality matches identified", "SUCCESS")
+    return filtered
+
+filtered_jobs = scan_platforms()
+
+
+# ============================================================
+#  CELL 5: Show Filtered Jobs
+# ============================================================
+
+def show_jobs(jobs):
+    header(f"MATCHED JOBS ({len(jobs)} found)")
+    rows = []
+    for j in sorted(jobs, key=lambda x: -x["match"]):
+        score_str = match_color(j["match"]) + f"{j['match']}%" + Style.RESET_ALL
+        type_color = Fore.BLUE if j["type"] == "Government" else Fore.MAGENTA
+        rows.append([
+            j["id"],
+            j["title"],
+            j["company"],
+            type_color + j["type"] + Style.RESET_ALL,
+            j["platform"],
+            j["location"],
+            j["stipend"],
+            score_str,
+            j["deadline"],
+        ])
+    headers = ["ID", "Role", "Company", "Type", "Platform", "Location", "Stipend", "Match", "Deadline"]
+    print(tabulate(rows, headers=headers, tablefmt="rounded_outline"))
+
+show_jobs(filtered_jobs)
+
+
+# ============================================================
+#  CELL 6: Generate Cover Letter (Anthropic API)
+# ============================================================
+
+def generate_cover_letter(job):
+    """Calls Anthropic API to generate a personalized cover letter."""
+    log(f"Generating cover letter for {job['title']} at {job['company']}...", "SYSTEM")
+
+    if ANTHROPIC_API_KEY == "YOUR_API_KEY_HERE":
+        # Demo mode - returns a sample cover letter
+        log("API key not set — using demo cover letter", "WARN")
+        return f"""Dear Hiring Manager,
+
+I am writing to express my strong interest in the {job['title']} position at {job['company']}. As a {STUDENT['year']} student at {STUDENT['college']} with a CGPA of {STUDENT['cgpa']}, I am excited to contribute to your team in the {job['domain']} domain.
+
+My technical background in {', '.join(STUDENT['skills'][:3])} aligns well with the required skills of {', '.join(job['skills'])}. Through my academic projects and coursework, I have developed hands-on experience that would allow me to add immediate value to your organization based in {job['location']}.
+
+I am particularly drawn to {job['company']} because of your commitment to innovation in {job['domain']}. I am eager to bring my passion for technology and problem-solving to this {job['type']} role. Thank you for considering my application — I look forward to discussing how I can contribute to your team.
+
+Sincerely,
+{STUDENT['name']}
+{STUDENT['email']} | {STUDENT['college']}"""
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=800,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Write a concise, professional 3-paragraph cover letter for a student applying to this job:\n"
+                    f"Job: {job['title']} at {job['company']} ({job['type']})\n"
+                    f"Location: {job['location']}\n"
+                    f"Required Skills: {', '.join(job['skills'])}\n"
+                    f"Domain: {job['domain']}\n\n"
+                    f"Student Profile:\n"
+                    f"Name: {STUDENT['name']}\n"
+                    f"College: {STUDENT['college']}, {STUDENT['year']}\n"
+                    f"CGPA: {STUDENT['cgpa']}\n"
+                    f"Skills: {', '.join(STUDENT['skills'])}\n\n"
+                    f"Write under 250 words. Be specific and enthusiastic. Start with 'Dear Hiring Manager,'"
+                )
+            }]
+        )
+        return message.content[0].text
+    except Exception as e:
+        log(f"API error: {e}", "ERROR")
+        return None
+
+
+# ============================================================
+#  CELL 7: Auto-Apply Function
+# ============================================================
+
+def auto_apply(job, cover_letter=None):
+    """Simulate submitting an application."""
+    log(f"Applying to {job['title']} @ {job['company']} via {job['platform']}...", "INFO")
+    time.sleep(1.0)
+
+    applied_record = {
+        **job,
+        "applied_at": datetime.now().strftime("%d %b %Y, %H:%M"),
+        "cover_letter": cover_letter,
+        "shortlisted": False,
+    }
+    applied_jobs.append(applied_record)
+
+    notif = {
+        "type":    "applied",
+        "title":   f"Application Submitted -- {job['title']}",
+        "body":    f"Your application to {job['company']} ({job['platform']}) was submitted successfully.",
+        "time":    datetime.now().strftime("%H:%M"),
+        "read":    False,
+    }
+    notifications.append(notif)
+
+    log(f"SUCCESS: Applied to {job['title']} at {job['company']}", "SUCCESS")
+    print(f"\n  {Fore.GREEN}[EMAIL NOTIFICATION SENT]{Style.RESET_ALL}")
+    print(f"  To:      {STUDENT['email']}")
+    print(f"  Subject: Application Submitted -- {job['title']} at {job['company']}")
+    print(f"  Body:    {notif['body']}\n")
+
+    return applied_record
+
+
+# ============================================================
+#  CELL 8: Batch Auto-Apply (Top Matches)
+# ============================================================
+
+def batch_auto_apply(jobs, min_match=85, with_cover_letter=True):
+    header(f"AUTO-APPLYING TO JOBS (Match >= {min_match}%)")
+    targets = [j for j in sorted(jobs, key=lambda x: -x["match"]) if j["match"] >= min_match]
+
+    if not targets:
+        log("No jobs meet the minimum match threshold.", "WARN")
+        return
+
+    log(f"Found {len(targets)} jobs above {min_match}% match threshold", "INFO")
+    log(f"Cover letter generation: {'ON' if with_cover_letter else 'OFF'}", "SYSTEM")
+    print()
+
+    for job in targets:
+        print(Fore.CYAN + f"  -- Processing: {job['title']} at {job['company']} [{job['match']}%] --" + Style.RESET_ALL)
+        cl = None
+        if with_cover_letter:
+            cl = generate_cover_letter(job)
+            if cl:
+                log("Cover letter generated successfully", "SUCCESS")
+        auto_apply(job, cover_letter=cl)
+        time.sleep(0.4)
+
+    print()
+    log(f"Batch apply complete — {len(targets)} applications submitted!", "SUCCESS")
+
+# Run batch auto-apply
+batch_auto_apply(filtered_jobs, min_match=85, with_cover_letter=True)
+
+
+# ============================================================
+#  CELL 9: View Applied Jobs
+# ============================================================
+
+def show_applied_jobs():
+    header(f"APPLIED JOBS ({len(applied_jobs)})")
+    if not applied_jobs:
+        print(Fore.YELLOW + "  No applications submitted yet." + Style.RESET_ALL)
+        return
+
+    rows = [[
+        j["id"],
+        j["title"],
+        j["company"],
+        (Fore.BLUE if j["type"] == "Government" else Fore.MAGENTA) + j["type"] + Style.RESET_ALL,
+        j["platform"],
+        j["applied_at"],
+        (Fore.YELLOW + "SHORTLISTED" if j.get("shortlisted") else Fore.WHITE + "Submitted") + Style.RESET_ALL,
+    ] for j in applied_jobs]
+
+    print(tabulate(rows,
+        headers=["ID", "Role", "Company", "Type", "Platform", "Applied At", "Status"],
+        tablefmt="rounded_outline"))
+
+show_applied_jobs()
+
+
+# ============================================================
+#  CELL 10: Shortlist Simulation + Email Reminder
+# ============================================================
+
+def simulate_shortlist(job_id):
+    """Simulate a company shortlisting the student's resume."""
+    job = next((j for j in applied_jobs if j["id"] == job_id), None)
+    if not job:
+        log(f"Job ID {job_id} not found in applied list.", "ERROR")
+        return
+
+    job["shortlisted"] = True
+    shortlisted_jobs.append(job)
+
+    notif = {
+        "type":  "shortlist",
+        "title": f"SHORTLISTED -- {job['title']} at {job['company']}",
+        "body":  f"Congratulations! {job['company']} has shortlisted your profile. Interview details will follow soon.",
+        "time":  datetime.now().strftime("%H:%M"),
+        "read":  False,
+    }
+    notifications.append(notif)
+
+    divider("*")
+    print(Fore.YELLOW + Style.BRIGHT + f"""
+  *** SHORTLIST ALERT ***
+  Job      : {job['title']}
+  Company  : {job['company']}
+  Location : {job['location']}
+  Stipend  : {job['stipend']}
+
+  [EMAIL REMINDER SENT & MARKED AS FAVORITE]
+  To:      {STUDENT['email']}
+  Subject: SHORTLISTED -- {job['title']} at {job['company']}
+  Body:    {notif['body']}
+""" + Style.RESET_ALL)
+    divider("*")
+    log(f"Job ID {job_id} marked as shortlisted and added to favorites", "SUCCESS")
+
+# Simulate shortlisting for job IDs 1 (Google) and 4 (Microsoft)
+simulate_shortlist(1)
+simulate_shortlist(4)
+
+
+# ============================================================
+#  CELL 11: Notifications Inbox
+# ============================================================
+
+def show_notifications():
+    header(f"NOTIFICATIONS INBOX ({len(notifications)} total)")
+    for n in notifications:
+        is_shortlist = n["type"] == "shortlist"
+        color = Fore.YELLOW + Style.BRIGHT if is_shortlist else Fore.CYAN
+        badge = "[SHORTLIST]" if is_shortlist else "[APPLIED]  "
+        print(color + f"  {badge} [{n['time']}] {n['title']}" + Style.RESET_ALL)
+        print(f"           {Fore.WHITE}{n['body']}{Style.RESET_ALL}")
+        print()
+
+show_notifications()
+
+
+# ============================================================
+#  CELL 12: Shortlisted / Favorites
+# ============================================================
+
+def show_shortlisted():
+    header(f"SHORTLISTED JOBS / FAVORITES ({len(shortlisted_jobs)})")
+    if not shortlisted_jobs:
+        print(Fore.YELLOW + "  No shortlisted jobs yet." + Style.RESET_ALL)
+        return
+
+    for j in shortlisted_jobs:
+        print(Fore.YELLOW + Style.BRIGHT + f"""
+  *** {j['title']}
+      Company  : {j['company']}
+      Type     : {j['type']}
+      Location : {j['location']}
+      Stipend  : {j['stipend']}
+      Skills   : {', '.join(j['skills'])}
+      Deadline : {j['deadline']}
+      Reminder : Check your email -- interview may be scheduled soon!
+""" + Style.RESET_ALL)
+
+show_shortlisted()
+
+
+# ============================================================
+#  CELL 13: Cover Letter Preview (first applied job)
+# ============================================================
+
+def show_cover_letter(job_id):
+    header(f"COVER LETTER -- JOB ID {job_id}")
+    job = next((j for j in applied_jobs if j["id"] == job_id), None)
+    if not job:
+        print(Fore.RED + f"Job ID {job_id} not found." + Style.RESET_ALL)
+        return
+    if not job.get("cover_letter"):
+        print(Fore.YELLOW + "No cover letter generated for this application." + Style.RESET_ALL)
+        return
+
+    print(Fore.WHITE + job["cover_letter"] + Style.RESET_ALL)
+
+show_cover_letter(1)
+
+
+# ============================================================
+#  CELL 14: Full Summary Report
+# ============================================================
+
+def show_summary():
+    header("AGENT SUMMARY REPORT")
+    total   = len(filtered_jobs)
+    applied = len(applied_jobs)
+    listed  = len(shortlisted_jobs)
+    rate    = round((applied / total) * 100) if total else 0
+
+    rows = [
+        ["Jobs Discovered",           total],
+        ["Applications Submitted",    applied],
+        ["Shortlisted",               listed],
+        ["Application Rate",          f"{rate}%"],
+        ["Platforms Scanned",         "LinkedIn, Unstop, Naukri, Company Portal"],
+        ["Job Types",                 "Private IT + Government"],
+        ["Domains Covered",           len(set(j['domain'] for j in filtered_jobs))],
+        ["Notifications Sent",        len(notifications)],
+    ]
+    print(tabulate(rows, headers=["Metric", "Value"], tablefmt="rounded_outline"))
+    print()
+    log("JobAgent run complete. All notifications dispatched.", "SUCCESS")
+
+show_summary()
